@@ -4,7 +4,7 @@ import numpy as np
 
 app = Flask(__name__)
 
-# تحميل الموديلات والإنكودر
+# ✅ Load trained models and encoders
 with open("model_disease.pkl", "rb") as f:
     model_disease = pickle.load(f)
 
@@ -15,16 +15,18 @@ with open("target_encoder_disease.pkl", "rb") as f:
     target_encoder_disease = pickle.load(f)
 
 
-@app.route('/')
+@app.route("/", methods=["GET"])
 def home():
-    return jsonify({"message": "Disease Prediction API is running 🚀"})
+    return jsonify({"message": "🚀 Disease Prediction API is running successfully!"})
 
 
-@app.route('/predict', methods=['POST'])
+@app.route("/predict", methods=["POST"])
 def predict():
     try:
-        # استلام البيانات كـ JSON
         data = request.get_json()
+
+        if not data:
+            return jsonify({"error": "No JSON received"}), 400
 
         chrom = data.get("Chrom")
         position = data.get("Position")
@@ -32,29 +34,32 @@ def predict():
         alt = data.get("Alt")
         clnsig = data.get("CLNSIG")
 
-        # التحقق من القيم
+        # ✅ Validate input
         if None in [chrom, position, ref, alt, clnsig]:
             return jsonify({"error": "Missing one or more input fields"}), 400
 
-        # تجهيز الداتا بنفس ترتيب التدريب
         X_input = np.array([[chrom, position, ref, alt, clnsig]])
 
-        # تحويل النصوص إلى أرقام بالإنكودر
-        for i, col in enumerate(['Chrom', 'Position', 'Ref', 'Alt', 'CLNSIG']):
+        # ✅ Apply encoders if column exists
+        for i, col in enumerate(["Chrom", "Position", "Ref", "Alt", "CLNSIG"]):
             if col in label_encoders:
-                le = label_encoders[col]
-                X_input[:, i] = le.transform(X_input[:, i])
+                encoder = label_encoders[col]
+                try:
+                    X_input[:, i] = encoder.transform(X_input[:, i])
+                except:
+                    return jsonify({"error": f"Invalid value for {col}"}), 400
 
         X_input = X_input.astype(float)
 
-        # التوقع من الموديل
-        disease_pred = model_disease.predict(X_input)
-        disease_name = target_encoder_disease.inverse_transform(disease_pred)[0]
+        # ✅ Model prediction
+        prediction = model_disease.predict(X_input)
+        disease_name = target_encoder_disease.inverse_transform(prediction)[0]
 
-        # حساب احتمالية الخطورة (risk probability)
-        risk_prob = model_disease.predict_proba(X_input)[0].max()
+        # ✅ Probability
+        prob = model_disease.predict_proba(X_input)[0].max()
+        risk_prob = float(prob)
 
-        # تحديد مستوى الخطورة
+        # ✅ Risk level
         if risk_prob >= 0.8:
             risk_level = "High"
         elif risk_prob >= 0.5:
@@ -62,16 +67,16 @@ def predict():
         else:
             risk_level = "Low"
 
-        # إخراج النتيجة
+        # ✅ Response JSON
         return jsonify({
             "Predicted_Disease": disease_name,
-            "Risk_Prob": round(float(risk_prob), 3),
+            "Risk_Prob": round(risk_prob, 3),
             "Risk_Level": risk_level
-        })
+        }), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-if __name__ == '__main__':
-    app.run()
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
